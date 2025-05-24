@@ -1,58 +1,52 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import re
 
-TOKEN = "here is a bot token from the @BotFather in telegram"
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Я калькулятор! Отправь выражение, например: 5.2 + 3.7\n"
-        "Поддерживаю: +, -, *, /"
-    )
+    await update.message.reply_text("Привет! Я боткалькулятор. Отправь мне выражение например /calc 2 + 3")
 
-async def calculate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message.text
-
-    pattern = r'^(\d+\.?\d*)\s*([+\-/])\s(\d+\.?\d*)$'
-    match = re.match(pattern, message.strip())
-
-    if not match:
-        await update.message.reply_text(
-            "Неверный формат! Пример: 5.2 + 3.7"
-        )
-        return
-
+def calculate_expression(expression: str) -> tuple:
     try:
-        num1 = float(match.group(1))
-        operator = match.group(2)
-        num2 = float(match.group(3))
+        expression = re.sub(r'\s*([+\-/])\s', r' \1 ', expression.strip())
+        if not re.match(r'^[\d\s+\-*/.()]+$', expression):
+            return None, "Ошибка: используй только числа и операторы (+, -, *, /)"
 
-        if operator == '+':
-            result = num1 + num2
-        elif operator == '-':
-            result = num1 - num2
-        elif operator == '*':
-            result = num1 * num2
-        elif operator == '/':
-            if num2 == 0:
-                await update.message.reply_text("Ошибка: деление на ноль!")
-                return
-            result = num1 / num2
-        else:
-            await update.message.reply_text("Ошибка: неподдерживаемый оператор! Используйте +, -, *, /")
+        result = eval(expression, {"_builtins_": {}}, {})
+        return result, None
+    except ZeroDivisionError:
+        return None, "Ошибка: деление на ноль. Попробуй другое выражение."
+    except Exception as e:
+        return None, f"Ошибка: неверное выражение ({str(e)}). Пример: /calc 2 + 3"
+
+async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        expression = ' '.join(context.args)
+        if not expression:
+            await update.message.reply_text("Отправь выражение после /calc, например, /calc 2 + 3")
             return
 
-        result = round(result, 2)
-        await update.message.reply_text(f"Результат: {result}")
+        result, error = calculate_expression(expression)
+        if error:
+            await update.message.reply_text(error)
+        else:
+            await update.message.reply_text(f"Результат: {result}")
+            
+    except Exception as e:
+        print(f"Error processing calc: {e}")
+        await update.message.reply_text("Произошла ошибка. Попробуй снова, например, /calc 2 + 3")
 
-    except ValueError:
-        await update.message.reply_text("Ошибка: введите корректные числа!")
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Пожалуйста, отправь выражение, например, /calc 2 + 3")
 
-def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, calculate))
-    app.run_polling()
+async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"Update {update} caused error {context.error}")
+    if update.message:
+        await update.message.reply_text("Произошла ошибка. Попробуй снова!")
 
-if __name__ == "__main__":
-    main()
+app = ApplicationBuilder().token("here is your bot token from @BotFather").build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("calc", calc))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+app.add_error_handler(error)
+
+app.run_polling() 
